@@ -9,6 +9,7 @@ A image hashing library written in Go. ImageHash supports:
 * [Average hashing](http://www.hackerfactor.com/blog/index.php?/archives/432-Looks-Like-It.html)
 * [Difference hashing](http://www.hackerfactor.com/blog/index.php?/archives/529-Kind-of-Like-That.html)
 * [Perception hashing](http://www.hackerfactor.com/blog/index.php?/archives/432-Looks-Like-It.html)
+* Orientation invariant perception hashing (rotation/reflection canonical hash)
 * [Wavelet hashing](https://fullstackml.com/wavelet-image-hash-in-python-3504fdd282b5) [TODO]
 
 ## Installation
@@ -54,6 +55,54 @@ func main() {
         hash5, _ := goimagehash.LoadExtImageHash(bar)
 }
 ```
+
+### Orientation invariant perceptual hash
+
+`OrientationInvariantPerceptionHash` evaluates the four right-angle rotations
+and the horizontal mirror of each (eight D4 candidates), normalizes every
+candidate onto a square canvas without aspect-ratio stretching, and stores the
+lexicographically smallest candidate as the canonical hash. The same content
+rotated by 90/180/270 degrees or flipped therefore produces the identical bit
+string. The orientation decision is made at hash construction time, so
+`Dump`/`Load` keep the semantics without any rotation-aware distance logic.
+See `rohash_design.md` for the full geometry and serialization specification.
+
+``` Go
+func main() {
+        file, _ := os.Open("sample1.jpg")
+        defer file.Close()
+        img, _, _ := image.Decode(file)
+
+        // Background used for padding and alpha compositing; the hidden RGB
+        // of fully transparent pixels never reaches the hash.
+        bg := color.RGBA{R: 255, G: 255, B: 255, A: 255}
+        hash1, err := goimagehash.OrientationInvariantPerceptionHash(img, bg, 64)
+        if err != nil {
+                log.Fatal(err)
+        }
+        hash2, _ := goimagehash.OrientationInvariantPerceptionHash(rotated90(img), bg, 64)
+        distance, _ := hash1.Distance(hash2) // 0: orientation invariant
+
+        // Versioned binary frame (magic GOIH; rejects unknown versions,
+        // truncated input and length mismatches).
+        var b bytes.Buffer
+        _ = hash1.Dump(&b)
+        loaded, _ := goimagehash.LoadROImageHash(&b)
+        fmt.Println(hash1.ToString()) // r:64:...
+        parsed, _ := goimagehash.ROImageHashFromString(hash1.ToString())
+        _, _ = loaded, parsed
+}
+```
+
+A runnable example lives in `_examples/rohash_example.go`. The `_examples`
+directory contains several standalone programs, so run it as a single file:
+
+```
+cd _examples && go run rohash_example.go sample1.jpg
+```
+
+An offline, committed golden fixture (`testdata/ro_golden.png`) pins the exact
+64-bit output bit string in `TestROGoldenSample`.
 
 ## Release Note
 ### v1.1.0
